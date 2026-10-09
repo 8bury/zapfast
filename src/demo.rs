@@ -2833,6 +2833,7 @@ pub fn apply_flags(app: &mut App, page: Option<&str>) {
                             false,
                             now + index as i64 * 2,
                             Content::Image {
+                                motion: None,
                                 caption: None,
                                 media: attachment,
                             },
