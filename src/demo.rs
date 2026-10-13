@@ -5924,7 +5924,7 @@ mod tests {
     }
 
     #[test]
-    fn preview_navigation_stays_in_modal_gutters_across_photos_and_zoom() {
+    fn preview_navigation_overlays_the_photo_on_hover() {
         fn controls(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Rect> {
             fn collect(shape: &egui::Shape, out: &mut Vec<egui::Rect>) {
                 match shape {
@@ -5980,16 +5980,26 @@ mod tests {
         app.composer = "unsent draft".into();
         let picture = preview_frame(&mut app, &ctx, vec![]);
         let initial = app.image_preview.as_ref().unwrap().path().to_owned();
-        let outside = egui::pos2(5.0, 5.0);
         let hidden = frame_sized(
             &mut app,
             &ctx,
             780.0,
-            vec![egui::Event::PointerMoved(outside)],
+            vec![egui::Event::PointerMoved(egui::pos2(5.0, 5.0))],
         );
         assert!(
             controls(&hidden).is_empty(),
             "outside the modal hides the arrows"
+        );
+        let beside = egui::pos2(picture.left() - 5.0, picture.center().y);
+        let hidden = frame_sized(
+            &mut app,
+            &ctx,
+            780.0,
+            vec![egui::Event::PointerMoved(beside)],
+        );
+        assert!(
+            controls(&hidden).is_empty(),
+            "beside the photo hides the arrows"
         );
         frame_sized(
             &mut app,
@@ -6001,40 +6011,11 @@ mod tests {
         let buttons = controls(&shown);
         assert_eq!(buttons.len(), 2);
         assert!(
-            buttons[0].right() < picture.left(),
-            "previous is outside the photo"
+            buttons.iter().all(|button| picture.contains_rect(*button)),
+            "the arrows sit on the photo"
         );
-        assert!(
-            buttons[1].left() > picture.right(),
-            "next is outside the photo"
-        );
-        let positions = buttons.clone();
-        for y in [picture.top() - 5.0, picture.bottom() + 5.0] {
-            let hidden = frame_sized(
-                &mut app,
-                &ctx,
-                780.0,
-                vec![egui::Event::PointerMoved(egui::pos2(picture.center().x, y))],
-            );
-            assert!(
-                controls(&hidden).is_empty(),
-                "vertical image margins hide the arrows"
-            );
-        }
-        let gutter = frame_sized(
-            &mut app,
-            &ctx,
-            780.0,
-            vec![egui::Event::PointerMoved(egui::pos2(
-                positions[0].center().x,
-                picture.top() + 5.0,
-            ))],
-        );
-        assert_eq!(
-            controls(&gutter),
-            positions,
-            "hover uses the full modal width"
-        );
+        assert!(buttons[0].center().x < picture.center().x);
+        assert!(buttons[1].center().x > picture.center().x);
 
         let next = buttons[1].center();
         frame_sized(&mut app, &ctx, 780.0, vec![egui::Event::PointerMoved(next)]);
@@ -6047,21 +6028,20 @@ mod tests {
         frame_sized(&mut app, &ctx, 780.0, vec![primary(next, true)]);
         frame_sized(&mut app, &ctx, 780.0, vec![primary(next, false)]);
         assert_ne!(app.image_preview.as_ref().unwrap().path(), initial);
-        preview_frame(
+        assert!(app.image_preview.as_ref().unwrap().is_fit());
+        let other = preview_frame(
             &mut app,
             &ctx,
             vec![egui::Event::PointerMoved(picture.center())],
         );
         let shown = frame_sized(&mut app, &ctx, 780.0, vec![]);
-        assert_eq!(
-            controls(&shown),
-            positions,
-            "changing photos never moves the arrows"
+        let buttons = controls(&shown);
+        assert_eq!(buttons.len(), 2);
+        assert!(
+            buttons.iter().all(|button| other.contains_rect(*button)),
+            "the arrows follow the photo on screen"
         );
-        let other_picture = picture_rect(&shown);
-        assert!(positions[0].right() < other_picture.left());
-        assert!(positions[1].left() > other_picture.right());
-        let previous = positions[0].center();
+        let previous = buttons[0].center();
         frame_sized(
             &mut app,
             &ctx,
@@ -6079,7 +6059,11 @@ mod tests {
             vec![egui::Event::PointerMoved(picture.center())],
         );
         let zoomed = frame_sized(&mut app, &ctx, 780.0, vec![]);
-        assert_eq!(controls(&zoomed), positions, "zoom never moves the arrows");
+        assert_eq!(
+            controls(&zoomed).len(),
+            2,
+            "a zoomed photo keeps its arrows"
+        );
         let gone = frame_sized(&mut app, &ctx, 780.0, vec![egui::Event::PointerGone]);
         assert!(
             controls(&gone).is_empty(),

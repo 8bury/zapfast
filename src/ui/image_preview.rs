@@ -188,10 +188,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
 
             // The scroll area below takes this rect as its viewport.
             let area = ui.available_rect_before_wrap();
-            // Reserve fixed side gutters so navigation never covers the photo.
-            let gutter = 56.0_f32.min(area.width() / 4.0);
-            let image_area = area.shrink2(vec2(gutter, 0.0));
-            let canvas = image_area.size().max(Vec2::ZERO);
+            let canvas = area.size().max(Vec2::ZERO);
             // Registered with the image cache like every other draw site, so a
             // sweep never releases the picture while it is on screen.
             let image = crate::ui::widgets::file_image(ui, preview.path());
@@ -207,16 +204,14 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     let trackpad = app.scrolling.from_trackpad();
                     // Read before the scroll area, which would otherwise take the
                     // wheel. The zoom itself is applied by `App` after the frame.
-                    let zoom =
-                        zoom_input(ui, image_area, trackpad).and_then(|(factor, pointer)| {
-                            let mut next = app.image_preview.clone()?;
-                            next.zoom_by(factor);
-                            let zoomed =
-                                display_size(texture.size, canvas, next.is_fit(), next.zoom());
-                            Some((factor, pointer, zoomed))
-                        });
+                    let zoom = zoom_input(ui, area, trackpad).and_then(|(factor, pointer)| {
+                        let mut next = app.image_preview.clone()?;
+                        next.zoom_by(factor);
+                        let zoomed = display_size(texture.size, canvas, next.is_fit(), next.zoom());
+                        Some((factor, pointer, zoomed))
+                    });
                     let output = ui
-                        .scope_builder(egui::UiBuilder::new().max_rect(image_area), |ui| {
+                        .scope_builder(egui::UiBuilder::new().max_rect(area), |ui| {
                             egui::ScrollArea::both()
                                 .id_salt(("image-preview-scroll", preview.path()))
                                 .auto_shrink([false, false])
@@ -350,7 +345,7 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                                 size,
                                 texture.size,
                                 output.state.offset,
-                                pos - image_area.min,
+                                pos - area.min,
                                 canvas / 2.0,
                             );
                             scroll.store(ctx, output.id);
@@ -361,12 +356,12 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
                     }
                 }
                 Ok(egui::load::TexturePoll::Pending { .. }) => {
-                    let (rect, _) = ui.allocate_exact_size(area.size(), egui::Sense::hover());
+                    let (rect, _) = ui.allocate_exact_size(canvas, egui::Sense::hover());
                     theme::paint_spinner(ui, rect, 28.0, palette.accent);
                 }
                 Err(_) => {
                     ui.allocate_ui_with_layout(
-                        area.size(),
+                        canvas,
                         Layout::centered_and_justified(egui::Direction::TopDown),
                         |ui| {
                             ui.label("This image could not be displayed in ZapFast.");
@@ -384,10 +379,11 @@ pub fn show(app: &mut App, ctx: &egui::Context) {
     }
 }
 
-/// Draw navigation in fixed side gutters of the modal's picture area.
-/// Hover spans the modal's width but only the visible photo's height. The side
-/// gutters remain interactive; margins above and below the photo do not show
-/// controls. Neither the photo's size nor zoom moves the controls.
+/// Previous and next buttons over the visible part of the photo, shown while
+/// the pointer is over it. A photo too narrow for both gets a band just wide
+/// enough, centred on it, so the buttons sit at its edges instead of on top of
+/// each other. Neither button checks whether there is an image that way: the
+/// conversation is only searched when one is pressed.
 fn navigation_overlay(
     ui: &mut egui::Ui,
     area: Rect,
@@ -395,18 +391,21 @@ fn navigation_overlay(
     palette: &theme::Palette,
     actions: &mut Vec<Action>,
 ) {
-    let hover = Rect::from_min_max(
-        egui::pos2(area.left(), image.top()),
-        egui::pos2(area.right(), image.bottom()),
-    )
-    .intersect(area);
-    if ui.input(|input| input.pointer.hover_pos()).is_none() || !ui.rect_contains_pointer(hover) {
+    const DIAMETER: f32 = 40.0;
+    const INSET: f32 = 12.0;
+    let min_width = 2.0 * (DIAMETER + INSET) + DIAMETER;
+    let mut band = image;
+    if band.width() < min_width {
+        band = Rect::from_center_size(band.center(), vec2(min_width, band.height()));
+    }
+    let band = band.intersect(area);
+    if band.height() < DIAMETER || band.width() < 2.0 * DIAMETER {
         return;
     }
-    let diameter = (56.0_f32.min(area.width() / 4.0) - 16.0).min(area.height() - 20.0);
-    if diameter < 16.0 {
+    if ui.input(|input| input.pointer.hover_pos()).is_none() || !ui.rect_contains_pointer(band) {
         return;
     }
+    let inset = INSET.min((band.width() - 2.0 * DIAMETER) / 2.0);
     for (right, icon, hint, action) in [
         (
             false,
@@ -422,11 +421,11 @@ fn navigation_overlay(
         ),
     ] {
         let x = if right {
-            area.right() - 10.0 - diameter / 2.0
+            band.right() - inset - DIAMETER / 2.0
         } else {
-            area.left() + 10.0 + diameter / 2.0
+            band.left() + inset + DIAMETER / 2.0
         };
-        let rect = Rect::from_center_size(egui::pos2(x, area.center().y), Vec2::splat(diameter));
+        let rect = Rect::from_center_size(egui::pos2(x, band.center().y), Vec2::splat(DIAMETER));
         ui.scope_builder(
             egui::UiBuilder::new()
                 .id_salt(("image-preview-navigation", right))
@@ -436,8 +435,8 @@ fn navigation_overlay(
                 if theme::circle_button(
                     ui,
                     icon,
-                    diameter,
-                    palette.overlay,
+                    DIAMETER,
+                    palette.overlay.gamma_multiply(0.85),
                     palette.surface_hover,
                     palette.text,
                     hint,

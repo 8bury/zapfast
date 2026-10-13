@@ -500,6 +500,7 @@ pub const SHORTCUTS: &[(&str, &str)] = &[
     ("Ctrl+,", "Settings"),
     ("Ctrl++ / Ctrl+-", "Zoom in / out"),
     ("Ctrl+0", "Reset zoom"),
+    ("← / →", "Previous / next image in the image viewer"),
     ("? / Ctrl+/", "Keyboard shortcuts (? when not typing)"),
     ("Ctrl+Shift+L", "Lock ZapFast (with an app lock password)"),
     ("Ctrl+W", "Close the window (ZapFast remains in the tray)"),
